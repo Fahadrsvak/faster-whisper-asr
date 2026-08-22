@@ -2,38 +2,59 @@ import asyncio
 import json
 import logging
 import time
+import subprocess
 import numpy as np
-import io
-import soundfile as sf
 import websockets
 from faster_whisper import WhisperModel
 
 logging.basicConfig(level=logging.INFO)
 
-# Tiny.en model for ultra-fast CPU inference (~70ms)
 MODEL_SIZE = "tiny.en"
 logging.info(f"Loading Faster-Whisper model ({MODEL_SIZE})...")
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=2)
 logging.info("Faster-Whisper initialized successfully.")
 
+def decode_audio_with_ffmpeg(audio_bytes):
+    """Converts WebM/OGG/WAV audio bytes into 16kHz mono float32 array using FFmpeg."""
+    cmd = [
+        "ffmpeg",
+        "-i", "pipe:0",           # Read binary from stdin
+        "-f", "s16le",            # Convert to raw 16-bit PCM LE
+        "-ac", "1",               # Convert to 1 channel (Mono)
+        "-ar", "16000",           # Resample to 16,000 Hz
+        "pipe:1"                  # Output raw PCM to stdout
+    ]
+    
+    process = subprocess.Popen(
+        cmd,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE
+    )
+    
+    pcm_out, err = process.communicate(input=audio_bytes)
+    
+    if process.returncode != 0:
+        logging.error(f"FFmpeg decoding error: {err.decode('utf-8')}")
+        return np.array([], dtype=np.float32)
+        
+    # Convert raw PCM16 bytes to float32 normalized [-1.0, 1.0]
+    return np.frombuffer(pcm_out, dtype=np.int16).astype(np.float32) / 32768.0
+
 def transcribe_blob(audio_bytes):
-    """Processes complete audio blob off-thread using SoundFile decoding."""
+    """Processes complete decoded audio off-thread."""
     start_time = time.perf_counter()
     
-    # Read binary WebM/WAV/OGG buffer into float32 numpy array
-    audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
+    audio_np = decode_audio_with_ffmpeg(audio_bytes)
     
-    # Convert stereo to mono if needed
-    if len(audio_data.shape) > 1:
-        audio_data = audio_data.mean(axis=1)
-        
-    audio_np = audio_data.astype(np.float32)
+    if len(audio_np) == 0:
+        return "", 0, 0.0
 
     segments, info = model.transcribe(
         audio_np,
-        beam_size=1,            # Fast greedy search
+        beam_size=1,
         language="en",
-        vad_filter=False        # DISABLED: Prevents VAD from stripping audio
+        vad_filter=False
     )
     
     text = " ".join([segment.text.strip() for segment in segments if segment.text]).strip()
