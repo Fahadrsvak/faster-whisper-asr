@@ -10,7 +10,7 @@ from faster_whisper import WhisperModel
 
 logging.basicConfig(level=logging.INFO)
 
-# Switch to 'tiny.en' for high-speed CPU inference on budget VPS instances
+# Tiny.en model for ultra-fast CPU inference (~70ms)
 MODEL_SIZE = "tiny.en"
 logging.info(f"Loading Faster-Whisper model ({MODEL_SIZE})...")
 model = WhisperModel(MODEL_SIZE, device="cpu", compute_type="int8", cpu_threads=2)
@@ -20,10 +20,10 @@ def transcribe_blob(audio_bytes):
     """Processes complete audio blob off-thread using SoundFile decoding."""
     start_time = time.perf_counter()
     
-    # Read binary WAV/WebM/OGG buffer into float32 numpy array
+    # Read binary WebM/WAV/OGG buffer into float32 numpy array
     audio_data, sample_rate = sf.read(io.BytesIO(audio_bytes))
     
-    # Convert stereo to mono if necessary
+    # Convert stereo to mono if needed
     if len(audio_data.shape) > 1:
         audio_data = audio_data.mean(axis=1)
         
@@ -33,8 +33,7 @@ def transcribe_blob(audio_bytes):
         audio_np,
         beam_size=1,            # Fast greedy search
         language="en",
-        vad_filter=True,        # VAD works reliably on complete recordings
-        vad_parameters=dict(min_silence_duration_ms=500)
+        vad_filter=False        # DISABLED: Prevents VAD from stripping audio
     )
     
     text = " ".join([segment.text.strip() for segment in segments if segment.text]).strip()
@@ -47,7 +46,6 @@ async def handle_websocket(websocket):
 
     try:
         async for message in websocket:
-            # Handle incoming full audio blob from client
             if isinstance(message, bytes):
                 logging.info(f"Received audio blob ({len(message)} bytes). Transcribing...")
                 
