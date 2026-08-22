@@ -52,7 +52,7 @@ def transcribe_blob(audio_bytes):
 
     segments, info = model.transcribe(
         audio_np,
-        beam_size=1,
+        beam_size=3,
         language="en",
         vad_filter=False
     )
