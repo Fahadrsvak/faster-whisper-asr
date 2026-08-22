@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  faster-whisper:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: faster-whisper-asr
+    restart: always
+    ports:
+      - '6009:6009'
+    expose:
+      - '6009'
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    external: true
